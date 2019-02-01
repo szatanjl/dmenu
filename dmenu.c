@@ -35,6 +35,7 @@ struct item {
 };
 
 static char text[BUFSIZ] = "";
+static char censort[BUFSIZ] = "";
 static char *embed;
 static int bh, mw, mh;
 static int inputw = 0, promptw;
@@ -59,6 +60,7 @@ static int (*fstrncmp)(const char *, const char *, size_t) = strncmp;
 static char *(*fstrstr)(const char *, const char *) = strstr;
 
 static char *window = NULL;
+static int passwd = 0;
 
 static void
 appenditem(struct item *item, struct item **list, struct item **last)
@@ -130,6 +132,15 @@ drawitem(struct item *item, int x, int y, int w)
 	return drw_text(drw, x, y, w, bh, lrpad / 2, item->text, 0);
 }
 
+static size_t
+utf8len(const char *str)
+{
+	size_t len = 0;
+	for (; *str; str++)
+		len += ((*str & 0x80) != 0x80 || (*str & 0xc0) == 0xc0);
+	return len;
+}
+
 static void
 drawmenu(void)
 {
@@ -157,7 +168,14 @@ drawmenu(void)
 		w = mw - lrpad / 2;
 	}
 	drw_setscheme(drw, scheme[SchemeNorm]);
-	drw_text(drw, x, y, w, bh, lrpad / 2, text, 0);
+	if (passwd) {
+		size_t len = utf8len(text);
+		censort[len] = '\0';
+		drw_text(drw, x, y, w, bh, lrpad / 2, censort, 0);
+		censort[len] = '*';
+	} else {
+		drw_text(drw, x, y, w, bh, lrpad / 2, text, 0);
+	}
 
 	curpos = TEXTW(text) - TEXTW(&text[cursor]);
 	if ((curpos += lrpad / 2 - 1) < w) {
@@ -547,6 +565,11 @@ readstdin(void)
 	size_t i, imax = 0, size = 0;
 	unsigned int tmpmax = 0;
 
+	if (passwd) {
+		inputw = lines = 0;
+		return;
+	}
+
 	/* read each line from stdin and add it to the item list */
 	for (i = 0; fgets(buf, sizeof buf, stdin); i++) {
 		if (i + 1 >= size / sizeof *items)
@@ -680,6 +703,9 @@ setup(void)
 	for (j = 0; j < SchemeLast; j++)
 		scheme[j] = drw_scm_create(drw, colors[j], 2);
 
+	for (j = 0; j < sizeof(censort); j++)
+		censort[j] = '*';
+
 	clip = XInternAtom(dpy, "CLIPBOARD",   False);
 	utf8 = XInternAtom(dpy, "UTF8_STRING", False);
 
@@ -780,7 +806,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-bfiv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-bfiPv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-W wintitle] [-w windowid]\n", stderr);
 	exit(1);
 }
@@ -803,7 +829,9 @@ main(int argc, char *argv[])
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
-		} else if (i + 1 == argc)
+		} else if (!strcmp(argv[i], "-P")) /* is the input a password */
+			passwd = 1;
+		else if (i + 1 == argc)
 			usage();
 		/* these options take one argument */
 		else if (!strcmp(argv[i], "-l"))   /* number of lines in vertical list */
