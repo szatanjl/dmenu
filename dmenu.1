@@ -6,6 +6,8 @@ dmenu \- dynamic menu
 .RB [ \-bfiv ]
 .RB [ \-l
 .IR lines ]
+.RB [ \-H
+.IR height ]
 .RB [ \-m
 .IR monitor ]
 .RB [ \-p
@@ -49,6 +51,9 @@ dmenu matches menu items case insensitively.
 .TP
 .BI \-l " lines"
 dmenu lists items vertically, with the given number of lines.
+.TP
+.BI \-H " height"
+dmenu uses a menu line of at least 'height' pixels tall.
 .TP
 .BI \-m " monitor"
 dmenu is displayed on the monitor number supplied. Monitor numbers are starting
