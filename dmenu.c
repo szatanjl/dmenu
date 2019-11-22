@@ -61,6 +61,7 @@ static char *(*fstrstr)(const char *, const char *) = strstr;
 
 static char *window = NULL;
 static int passwd = 0;
+static int favor_text_input = 0;
 
 static void
 appenditem(struct item *item, struct item **list, struct item **last)
@@ -504,7 +505,10 @@ insert:
 		break;
 	case XK_Return:
 	case XK_KP_Enter:
-		puts((sel && !(ev->state & ShiftMask)) ? sel->text : text);
+		if (favor_text_input)
+			puts((sel && (ev->state & ShiftMask)) ? sel->text : text);
+		else
+			puts((sel && !(ev->state & ShiftMask)) ? sel->text : text);
 		if (!(ev->state & ControlMask)) {
 			cleanup();
 			exit(0);
@@ -806,7 +810,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-bfiPv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-bfiPtv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-W wintitle] [-w windowid]\n", stderr);
 	exit(1);
 }
@@ -831,6 +835,8 @@ main(int argc, char *argv[])
 			fstrstr = cistrstr;
 		} else if (!strcmp(argv[i], "-P")) /* is the input a password */
 			passwd = 1;
+		else if (!strcmp(argv[i], "-t"))   /* favor text input over selection */
+			favor_text_input = 1;
 		else if (i + 1 == argc)
 			usage();
 		/* these options take one argument */
