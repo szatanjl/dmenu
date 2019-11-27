@@ -59,6 +59,7 @@ static int (*fstrncmp)(const char *, const char *, size_t) = strncmp;
 static char *(*fstrstr)(const char *, const char *) = strstr;
 
 static int favor_text_input = 0;
+static int reject_no_match = 0;
 
 static void
 appenditem(struct item *item, struct item **list, struct item **last)
@@ -466,7 +467,10 @@ insert:
 		break;
 	case XK_Return:
 	case XK_KP_Enter:
-		if (favor_text_input)
+		if (reject_no_match) {
+			if (sel)
+				puts(sel->text);
+		} else if (favor_text_input)
 			puts((sel && (ev->state & ShiftMask)) ? sel->text : text);
 		else
 			puts((sel && !(ev->state & ShiftMask)) ? sel->text : text);
@@ -695,7 +699,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-bfitv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-bfirtv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]\n", stderr);
 	exit(1);
 }
@@ -719,6 +723,8 @@ main(int argc, char *argv[])
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
 		}
+		else if (!strcmp(argv[i], "-r"))   /* reject input which result in no match */
+			reject_no_match = 1;
 		else if (!strcmp(argv[i], "-t"))   /* favor text input over selection */
 			favor_text_input = 1;
 		else if (i + 1 == argc)
