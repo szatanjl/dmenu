@@ -31,6 +31,7 @@ enum { SchemeNorm, SchemeSel, SchemeOut, SchemeLast }; /* color schemes */
 struct item {
 	char *text;
 	struct item *left, *right;
+	size_t s, d;
 	int out;
 };
 
@@ -64,6 +65,7 @@ static int passwd = 0;
 static int favor_text_input = 0;
 static int reject_no_match = 0;
 static int fuzzy = 0;
+static int sort_matches = 0;
 
 static void
 appenditem(struct item *item, struct item **list, struct item **last)
@@ -293,6 +295,110 @@ fmatch(const char *s, const char *p, char **begin, char **end)
 	return s != NULL;
 }
 
+static int
+cmp(struct item *x, struct item *y)
+{
+	size_t xe = utf8len(x->text) - x->s - x->d;
+	size_t ye = utf8len(y->text) - y->s - y->d;
+	size_t xse = MIN(x->s, xe), yse = MIN(y->s, ye);
+
+	if (x->d != y->d)
+		return x->d > y->d;
+	if (xse != yse)
+		return xse > yse;
+	return x->s > y->s;
+}
+
+static struct item *
+middle(struct item *begin, struct item *end)
+{
+	struct item *mid = begin, *cur = begin;
+
+	while (cur != end) {
+		cur = cur->right;
+		if (cur != end) {
+			cur = cur->right;
+			mid = mid->right;
+		}
+	}
+
+	return mid;
+}
+
+static void
+merge(struct item **begin, struct item *mid, struct item **end)
+{
+	struct item *l1 = *begin, *l2 = mid;
+	struct item *b = (*begin)->left, *e = (*end)->right;
+	struct item *item, *list = NULL, *last = NULL;
+
+	while (l1 != mid || l2 != e) {
+		if (l1 == mid || (l2 != e && cmp(l1, l2) > 0)) {
+			item = l2;
+			l2 = l2->right;
+		} else {
+			item = l1;
+			l1 = l1->right;
+		}
+		appenditem(item, &list, &last);
+	}
+
+	list->left = b;
+	last->right = e;
+	*begin = list;
+	*end = last;
+}
+
+static void
+sort(struct item **begin, struct item **end)
+{
+	struct item *mid;
+
+	if (*begin == *end)
+		return;
+
+	mid = middle(*begin, *end);
+	sort(begin, &mid);
+	sort(&(mid->right), end);
+	merge(begin, mid->right, end);
+}
+
+static int
+matchitem(struct item *item, char *tokens[], size_t i)
+{
+	struct item x = {0}, y = {0};
+	char *s, *e, c;
+	int ret = 0;
+
+	x.text = y.text = item->text;
+	x.s = x.d = y.s = y.d = strlen(item->text);
+
+	for (s = item->text; fmatch(s, tokens[i], &s, &e); s++) {
+		ret = 1;
+
+		c = *s;
+		*s = '\0';
+		y.s = utf8len(item->text);
+		*s = c;
+
+		c = *e;
+		*e = '\0';
+		y.d = utf8len(s);
+		*e = c;
+
+		if (cmp(&x, &y) > 0)
+			x = y;
+	}
+
+	if (ret) {
+		if (i == 0)
+			item->s = item->d = 0;
+		item->s += x.s;
+		item->d += x.d;
+	}
+	return ret;
+}
+
 static void
 match(void)
 {
@@ -315,7 +421,7 @@ match(void)
 	textsize = strlen(text) + 1;
 	for (item = items; item && item->text; item++) {
 		for (i = 0; i < tokc; i++)
-			if (!fmatch(item->text, tokv[i], NULL, NULL))
+			if (!matchitem(item, tokv, i))
 				break;
 		if (i != tokc) /* not all tokens match */
 			continue;
@@ -328,6 +434,8 @@ match(void)
 			appenditem(item, &lsubstr, &substrend);
 	}
 	if (lprefix) {
+		if (sort_matches)
+			sort(&lprefix, &prefixend);
 		if (matches) {
 			matchend->right = lprefix;
 			lprefix->left = matchend;
@@ -336,6 +444,8 @@ match(void)
 		matchend = prefixend;
 	}
 	if (lsubstr) {
+		if (sort_matches)
+			sort(&lsubstr, &substrend);
 		if (matches) {
 			matchend->right = lsubstr;
 			lsubstr->left = matchend;
@@ -855,7 +965,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-bfFiPrtv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-bfFiPrstv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-W wintitle] [-w windowid]\n", stderr);
 	exit(1);
 }
@@ -884,6 +994,8 @@ main(int argc, char *argv[])
 			passwd = 1;
 		else if (!strcmp(argv[i], "-r"))   /* reject input which result in no match */
 			reject_no_match = 1;
+		else if (!strcmp(argv[i], "-s"))   /* sort matching options */
+			sort_matches = 1;
 		else if (!strcmp(argv[i], "-t"))   /* favor text input over selection */
 			favor_text_input = 1;
 		else if (i + 1 == argc)
