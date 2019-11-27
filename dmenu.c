@@ -60,6 +60,7 @@ static char *(*fstrstr)(const char *, const char *) = strstr;
 
 static int favor_text_input = 0;
 static int reject_no_match = 0;
+static int fuzzy = 0;
 
 static size_t
 nextutf8(const char *str, size_t pos, int inc)
@@ -224,6 +225,41 @@ grabkeyboard(void)
 	die("cannot grab keyboard");
 }
 
+static int
+fmatch(const char *s, const char *p, char **begin, char **end)
+{
+	const char *b = NULL, *e = NULL, *pe;
+	size_t n;
+	char c[5];
+
+	if (fuzzy) {
+		for (pe = p + strlen(p); s != NULL && p < pe; p += n) {
+			n = nextutf8(p, 0, 1);
+			strncpy(c, p, n);
+			c[n] = '\0';
+			s = fstrstr(s, c);
+			if (s != NULL) {
+				if (b == NULL)
+					b = s;
+				s += n;
+				e = s;
+			}
+		}
+	} else {
+		s = fstrstr(s, p);
+		if (s != NULL) {
+			b = s;
+			e = s + strlen(p);
+		}
+	}
+
+	if (begin != NULL)
+		*begin = (char *)b;
+	if (end != NULL)
+		*end = (char *)e;
+	return s != NULL;
+}
+
 static void
 match(void)
 {
@@ -246,7 +282,7 @@ match(void)
 	textsize = strlen(text) + 1;
 	for (item = items; item && item->text; item++) {
 		for (i = 0; i < tokc; i++)
-			if (!fstrstr(item->text, tokv[i]))
+			if (!fmatch(item->text, tokv[i], NULL, NULL))
 				break;
 		if (i != tokc) /* not all tokens match */
 			continue;
@@ -705,7 +741,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-bfirtv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-bfFirtv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]\n", stderr);
 	exit(1);
 }
@@ -725,6 +761,8 @@ main(int argc, char *argv[])
 			topbar = 0;
 		else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
 			fast = 1;
+		else if (!strcmp(argv[i], "-F"))   /* perform fuzzy-matching */
+			fuzzy = 1;
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
