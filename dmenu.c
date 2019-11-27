@@ -63,6 +63,7 @@ static char *window = NULL;
 static int passwd = 0;
 static int favor_text_input = 0;
 static int reject_no_match = 0;
+static int fuzzy = 0;
 
 static void
 appenditem(struct item *item, struct item **list, struct item **last)
@@ -252,6 +253,46 @@ grabkeyboard(void)
 	die("cannot grab keyboard");
 }
 
+static int
+fmatch(const char *s, const char *p, char **begin, char **end)
+{
+	const char *b = NULL, *e = NULL, *pe;
+	size_t n;
+	char c[5];
+
+	if (fuzzy) {
+		for (pe = p + strlen(p); s != NULL && p < pe; p += n) {
+			if ((*p & 0xf0) == 0xf0) n = 4;
+			else if ((*p & 0xe0) == 0xe0) n = 3;
+			else if ((*p & 0xc0) == 0xc0) n = 2;
+			else n = 1;
+
+			strncpy(c, p, n);
+			c[n] = '\0';
+
+			s = fstrstr(s, c);
+			if (s != NULL) {
+				if (b == NULL)
+					b = s;
+				s += n;
+				e = s;
+			}
+		}
+	} else {
+		s = fstrstr(s, p);
+		if (s != NULL) {
+			b = s;
+			e = s + strlen(p);
+		}
+	}
+
+	if (begin != NULL)
+		*begin = (char *)b;
+	if (end != NULL)
+		*end = (char *)e;
+	return s != NULL;
+}
+
 static void
 match(void)
 {
@@ -274,7 +315,7 @@ match(void)
 	textsize = strlen(text) + 1;
 	for (item = items; item && item->text; item++) {
 		for (i = 0; i < tokc; i++)
-			if (!fstrstr(item->text, tokv[i]))
+			if (!fmatch(item->text, tokv[i], NULL, NULL))
 				break;
 		if (i != tokc) /* not all tokens match */
 			continue;
@@ -814,7 +855,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-bfiPrtv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-bfFiPrtv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-W wintitle] [-w windowid]\n", stderr);
 	exit(1);
 }
@@ -834,6 +875,8 @@ main(int argc, char *argv[])
 			topbar = 0;
 		else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
 			fast = 1;
+		else if (!strcmp(argv[i], "-F"))   /* perform fuzzy-matching */
+			fuzzy = 1;
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
