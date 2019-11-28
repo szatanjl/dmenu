@@ -58,6 +58,8 @@ static Clr *scheme[SchemeLast];
 static int (*fstrncmp)(const char *, const char *, size_t) = strncmp;
 static char *(*fstrstr)(const char *, const char *) = strstr;
 
+static char *window = NULL;
+
 static void
 appenditem(struct item *item, struct item **list, struct item **last)
 {
@@ -78,6 +80,8 @@ calcoffsets(void)
 
 	if (lines > 0)
 		n = lines * bh;
+	else if (window)
+		n = mw - (TEXTW("<") + TEXTW(">"));
 	else
 		n = mw - (promptw + inputw + TEXTW("<") + TEXTW(">"));
 	/* calculate which items will begin the next page and previous page */
@@ -136,40 +140,58 @@ drawmenu(void)
 	drw_setscheme(drw, scheme[SchemeNorm]);
 	drw_rect(drw, 0, 0, mw, mh, 1, 1);
 
+	if (window) {
+		x = 0;
+		y += bh / 2;
+	}
 	if (prompt && *prompt) {
 		drw_setscheme(drw, scheme[SchemeSel]);
-		x = drw_text(drw, x, 0, promptw, bh, lrpad / 2, prompt, 0);
+		x = drw_text(drw, x, y, promptw, bh, lrpad / 2, prompt, 0);
 	}
+
 	/* draw input field */
 	w = (lines > 0 || !matches) ? mw - x : inputw;
+	if (window) {
+		x = 0;
+		y += bh + bh / 2;
+		w = mw - lrpad / 2;
+	}
 	drw_setscheme(drw, scheme[SchemeNorm]);
-	drw_text(drw, x, 0, w, bh, lrpad / 2, text, 0);
+	drw_text(drw, x, y, w, bh, lrpad / 2, text, 0);
 
 	curpos = TEXTW(text) - TEXTW(&text[cursor]);
 	if ((curpos += lrpad / 2 - 1) < w) {
 		drw_setscheme(drw, scheme[SchemeNorm]);
-		drw_rect(drw, x + curpos, 2 + (bh-fh)/2, 2, fh - 4, 1, 0);
+		drw_rect(drw, x + curpos, y + 2 + (bh-fh)/2, 2, fh - 4, 1, 0);
 	}
 
 	if (lines > 0) {
 		/* draw vertical list */
+		if (window) {
+			x = 0;
+			y += bh / 2;
+		}
 		for (item = curr; item != next; item = item->right)
 			drawitem(item, x, y += bh, mw - x);
 	} else if (matches) {
 		/* draw horizontal list */
 		x += inputw;
+		if (window) {
+			x = 0;
+			y += bh + bh / 2;
+		}
 		w = TEXTW("<");
 		if (curr->left) {
 			drw_setscheme(drw, scheme[SchemeNorm]);
-			drw_text(drw, x, 0, w, bh, lrpad / 2, "<", 0);
+			drw_text(drw, x, y, w, bh, lrpad / 2, "<", 0);
 		}
 		x += w;
 		for (item = curr; item != next; item = item->right)
-			x = drawitem(item, x, 0, MIN(TEXTW(item->text), mw - x - TEXTW(">")));
+			x = drawitem(item, x, y, MIN(TEXTW(item->text), mw - x - TEXTW(">")));
 		if (next) {
 			w = TEXTW(">");
 			drw_setscheme(drw, scheme[SchemeNorm]);
-			drw_text(drw, mw - w, 0, w, bh, lrpad / 2, ">", 0);
+			drw_text(drw, mw - w, y, w, bh, lrpad / 2, ">", 0);
 		}
 	}
 	drw_map(drw, win, 0, 0, mw, mh);
@@ -198,7 +220,7 @@ grabkeyboard(void)
 	struct timespec ts = { .tv_sec = 0, .tv_nsec = 1000000  };
 	int i;
 
-	if (embed)
+	if (embed || window)
 		return;
 	/* try to grab keyboard, we may have to wait for another process to ungrab */
 	for (i = 0; i < 1000; i++) {
@@ -586,6 +608,59 @@ run(void)
 }
 
 static void
+setup_windowed(int parentx, int parenty, int parentw, int parenth)
+{
+	XSetWindowAttributes swa;
+	XWindowChanges changes;
+	XTextProperty title;
+	Atom wintype, dialog;
+	XSizeHints *sizeh;
+	unsigned int min_width, i;
+
+	for (i = 0; i < 30; i++)
+		text[i] = '*';
+	text[30] = '\0';
+	min_width = TEXTW(text);
+	text[0] = '\0';
+
+	/* calculate menu geometry */
+	mw = inputw + TEXTW("<") + TEXTW(">");
+	mw = MIN(parentw, MAX(mw, MAX(promptw, min_width)));
+	mh = (MAX(lines, 1) + 4) * bh;
+	mh = MIN(parenth, mh);
+
+	/* let window manager control dmenu window */
+	swa.override_redirect = False;
+	XChangeWindowAttributes(dpy, win, CWOverrideRedirect, &swa);
+
+	/* resize dmenu window */
+	changes.width = mw;
+	changes.height = mh;
+	changes.x = parentx + (parentw - mw) / 2;
+	changes.y = parenty + (parenth - mh) / 2;
+	XConfigureWindow(dpy, win, CWX | CWY | CWWidth | CWHeight, &changes);
+
+	/* set window title */
+	XmbTextListToTextProperty(dpy, &window, 1, XStringStyle, &title);
+	XSetWMName(dpy, win, &title);
+
+	/* set window type as dialog */
+	wintype = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
+	dialog = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+	XChangeProperty(dpy, win, wintype, XA_ATOM, 32, PropModeReplace,
+	                (unsigned char*)&dialog, 1);
+
+	/* size hints */
+	sizeh = XAllocSizeHints();
+	sizeh->flags = PMinSize | PMaxSize | PWinGravity;
+	sizeh->min_width = sizeh->max_width = mw;
+	sizeh->min_height = sizeh->max_height = mh;
+	sizeh->win_gravity = CenterGravity;
+	XSetWMNormalHints(dpy, win, sizeh);
+	XFree(sizeh);
+}
+
+static void
 setup(void)
 {
 	int x, y, i, j;
@@ -595,6 +670,7 @@ setup(void)
 	Window w, dw, *dws;
 	XWindowAttributes wa;
 	XClassHint ch = {"dmenu", "dmenu"};
+	int parentx, parenty, parentw, parenth;
 #ifdef XINERAMA
 	XineramaScreenInfo *info;
 	Window pw;
@@ -641,6 +717,12 @@ setup(void)
 		x = info[i].x_org;
 		y = info[i].y_org + (topbar ? 0 : info[i].height - mh);
 		mw = info[i].width;
+
+		parentx = info[i].x_org;
+		parenty = info[i].y_org;
+		parentw = info[i].width;
+		parenth = info[i].height;
+
 		XFree(info);
 	} else
 #endif
@@ -651,10 +733,13 @@ setup(void)
 		x = 0;
 		y = topbar ? 0 : wa.height - mh;
 		mw = wa.width;
+
+		parentx = 0;
+		parenty = 0;
+		parentw = wa.width;
+		parenth = wa.height;
 	}
 	promptw = (prompt && *prompt) ? TEXTW(prompt) - lrpad / 4 : 0;
-	inputw = MIN(inputw, mw/3);
-	match();
 
 	/* create menu window */
 	swa.override_redirect = True;
@@ -665,6 +750,11 @@ setup(void)
 	                    CWOverrideRedirect | CWBackPixel | CWEventMask, &swa);
 	XSetClassHint(dpy, win, &ch);
 
+	if (window)
+		setup_windowed(parentx, parenty, parentw, parenth);
+
+	inputw = MIN(inputw, mw/3);
+	match();
 
 	/* input methods */
 	if ((xim = XOpenIM(dpy, NULL, NULL, NULL)) == NULL)
@@ -691,7 +781,7 @@ static void
 usage(void)
 {
 	fputs("usage: dmenu [-bfiv] [-l lines] [-H height] [-p prompt] [-fn font] [-m monitor]\n"
-	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]\n", stderr);
+	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-W wintitle] [-w windowid]\n", stderr);
 	exit(1);
 }
 
@@ -734,6 +824,8 @@ main(int argc, char *argv[])
 			colors[SchemeSel][ColBg] = argv[++i];
 		else if (!strcmp(argv[i], "-sf"))  /* selected foreground color */
 			colors[SchemeSel][ColFg] = argv[++i];
+		else if (!strcmp(argv[i], "-W"))   /* windowed mode */
+			window = argv[++i];        /* window title */
 		else if (!strcmp(argv[i], "-w"))   /* embedding window id */
 			embed = argv[++i];
 		else
