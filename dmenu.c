@@ -158,6 +158,11 @@ drawmenu(void)
 	unsigned int curpos;
 	struct item *item;
 	int x = 0, y = 0, w, fh = drw->fonts->h;
+	/* minpad = minimal width of text visible from left and right
+	 * side of cursor, so you can see some context when typing */
+	static unsigned int shift = 0;
+	int wi, s, minpad = TEXTW("www") - lrpad;
+	const char *t, *te, *tm;
 
 	drw_setscheme(drw, scheme[SchemeNorm]);
 	drw_rect(drw, 0, 0, mw, mh, 1, 1);
@@ -168,14 +173,34 @@ drawmenu(void)
 	}
 	/* draw input field */
 	w = (lines > 0 || !matches) ? mw - x : inputw;
-	drw_setscheme(drw, scheme[SchemeNorm]);
-	drw_text(drw, x, 0, w, bh, lrpad / 2, text, 0);
-
 	curpos = TEXTW(text) - TEXTW(&text[cursor]);
-	if ((curpos += lrpad / 2 - 1) < w) {
-		drw_setscheme(drw, scheme[SchemeNorm]);
-		drw_rect(drw, x + curpos, 2 + (bh-fh)/2, 2, fh - 4, 1, 0);
+
+	/* calculate how much to shift text to the left so that cursor
+	 * fits on the screen and text scrolls */
+	wi = w - lrpad - 2 * minpad;
+	if (curpos < shift)
+		shift = curpos;
+	else if (curpos > wi + shift)
+		shift = curpos - wi;
+	else if (TEXTW(text) - lrpad < wi + shift)
+		shift = TEXTW(text) - lrpad > wi ? (TEXTW(text) - lrpad - wi) : 0;
+
+	/* "cut" text so that it fits to current shift */
+	s = shift > minpad ? shift - minpad : 0;
+	t = text;
+	te = text + strlen(text);
+	while (t < te) {
+		tm = t + nextutf8(t, (te - t) / 2 + 1, -1);
+		if (TEXTW(text) - TEXTW(tm) < s)
+			t = tm + nextutf8(tm, 0, 1);
+		else
+			te = tm;
 	}
+
+	/* finaly draw input field */
+	drw_setscheme(drw, scheme[SchemeNorm]);
+	drw_text(drw, x - s + TEXTW(text) - TEXTW(t), 0, w, bh, lrpad / 2, t, 0);
+	drw_rect(drw, x - s + curpos + lrpad / 2 - 1, 2 + (bh-fh)/2, 2, fh - 4, 1, 0);
 
 	if (lines > 0) {
 		/* draw vertical list */
