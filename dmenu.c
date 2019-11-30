@@ -61,6 +61,17 @@ static char *(*fstrstr)(const char *, const char *) = strstr;
 static int favor_text_input = 0;
 static int reject_no_match = 0;
 
+static size_t
+nextutf8(const char *str, size_t pos, int inc)
+{
+	ssize_t n;
+
+	/* return location of next utf8 rune in the given direction (+1 or -1) */
+	for (n = pos + inc; n + inc >= 0 && (str[n] & 0xc0) == 0x80; n += inc)
+		;
+	return n;
+}
+
 static void
 appenditem(struct item *item, struct item **list, struct item **last)
 {
@@ -283,12 +294,7 @@ insert(const char *str, ssize_t n)
 static size_t
 nextrune(int inc)
 {
-	ssize_t n;
-
-	/* return location of next utf8 rune in the given direction (+1 or -1) */
-	for (n = cursor + inc; n + inc >= 0 && (text[n] & 0xc0) == 0x80; n += inc)
-		;
-	return n;
+	return nextutf8(text, cursor, inc);
 }
 
 static void
