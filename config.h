@@ -8,7 +8,6 @@ static unsigned int lines      = 0;
 static unsigned int lineheight = 0;         /* -H option; minimum height of a menu line      */
 /* -fn option overrides fonts[0]; default X11 font or font set */
 static const char *fonts[] = {
-	"DejaVuSansMono Nerd Font:pixelsize=16:antialias=true:autohint=true"
 	"monospace:pixelsize=16:antialias=true:autohint=true"
 };
 static const char *colors[SchemeLast][2] = {
